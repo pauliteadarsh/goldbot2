@@ -5,6 +5,7 @@ Signals: buy, sell, sl
 """
 
 import os
+import time
 import logging
 from datetime import datetime
 from flask import Flask, request, jsonify
@@ -26,8 +27,12 @@ log = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # ── Settings ───────────────────────────────────────────────────
-EPIC       = "GOLD"
-TRADE_SIZE = float(os.getenv("TRADE_SIZE", "1"))
+EPIC             = "GOLD"
+TRADE_SIZE       = float(os.getenv("TRADE_SIZE", "1"))
+OPEN_BLOCK_SECS  = int(os.getenv("OPEN_BLOCK_SECS", "30"))
+
+# ── State ──────────────────────────────────────────────────────
+last_open_time: float = 0.0
 
 # ── Capital.com client ─────────────────────────────────────────
 def get_capital():
@@ -91,7 +96,16 @@ def webhook():
 # SIGNAL HANDLERS
 # ══════════════════════════════════════════════════════════════
 
+def _is_blocked(label: str) -> bool:
+    elapsed = time.time() - last_open_time
+    if elapsed < OPEN_BLOCK_SECS:
+        log.info(f"{label} signal ignored — {elapsed:.1f}s since last open (block={OPEN_BLOCK_SECS}s)")
+        return True
+    return False
+
+
 def handle_buy():
+    global last_open_time
     capital        = get_capital()
     positions      = capital.get_positions(EPIC)
     sell_positions = [p for p in positions if p["direction"] == "SELL"]
@@ -103,10 +117,12 @@ def handle_buy():
             log.info(f"  Closed SELL {pos['dealId']}")
 
     capital.open_position(EPIC, "BUY", TRADE_SIZE)
+    last_open_time = time.time()
     log.info(f"Opened BUY {TRADE_SIZE} x {EPIC}")
 
 
 def handle_sell():
+    global last_open_time
     capital       = get_capital()
     positions     = capital.get_positions(EPIC)
     buy_positions = [p for p in positions if p["direction"] == "BUY"]
@@ -118,10 +134,14 @@ def handle_sell():
             log.info(f"  Closed BUY {pos['dealId']}")
 
     capital.open_position(EPIC, "SELL", TRADE_SIZE)
+    last_open_time = time.time()
     log.info(f"Opened SELL {TRADE_SIZE} x {EPIC}")
 
 
 def handle_tp1():
+    if _is_blocked("TP1"):
+        return
+
     capital   = get_capital()
     positions = capital.get_positions(EPIC)
 
@@ -136,6 +156,9 @@ def handle_tp1():
 
 
 def handle_sl():
+    if _is_blocked("SL"):
+        return
+
     capital   = get_capital()
     positions = capital.get_positions(EPIC)
 
