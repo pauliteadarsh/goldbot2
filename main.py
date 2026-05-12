@@ -77,8 +77,8 @@ def webhook():
             handle_buy()
         elif action == "sell":
             handle_sell()
-        elif action == "tp1":
-            handle_tp1()
+        elif action == "x":
+            handle_x()
         elif action == "sl":
             handle_sl()
         else:
@@ -138,21 +138,21 @@ def handle_sell():
     log.info(f"Opened SELL {TRADE_SIZE} x {EPIC}")
 
 
-def handle_tp1():
-    if _is_blocked("TP1"):
+def handle_x():
+    if _is_blocked("X"):
         return
 
     capital   = get_capital()
     positions = capital.get_positions(EPIC)
 
     if not positions:
-        log.info("TP1 signal — no open positions")
+        log.info("X signal — no open positions")
         return
 
-    log.info(f"TP1 signal: closing {len(positions)} position(s)")
+    log.info(f"X signal: closing {len(positions)} position(s)")
     for pos in positions:
         capital.close_position(pos["dealId"])
-        log.info(f"  Closed {pos['direction']} {pos['dealId']} at TP1")
+        log.info(f"  Closed {pos['direction']} {pos['dealId']} at X")
 
 
 def handle_sl():
