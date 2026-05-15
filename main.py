@@ -1,11 +1,10 @@
 """
 Gold Bot 2 — Main webhook server
 Listens for TradingView alerts and places trades on Capital.com
-Signals: buy, sell, sl
+Signals: buy, sell, x
 """
 
 import os
-import time
 import logging
 from datetime import datetime
 from flask import Flask, request, jsonify
@@ -27,12 +26,8 @@ log = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # ── Settings ───────────────────────────────────────────────────
-EPIC             = "GOLD"
-TRADE_SIZE       = float(os.getenv("TRADE_SIZE", "1"))
-OPEN_BLOCK_SECS  = int(os.getenv("OPEN_BLOCK_SECS", "30"))
-
-# ── State ──────────────────────────────────────────────────────
-last_open_time: float = 0.0
+EPIC       = "GOLD"
+TRADE_SIZE = float(os.getenv("TRADE_SIZE", "1"))
 
 # ── Capital.com client ─────────────────────────────────────────
 def get_capital():
@@ -60,13 +55,13 @@ def webhook():
     Expected payloads:
       {"action": "buy"}
       {"action": "sell"}
-      {"action": "sl"}
+      {"action": "x"}
     """
     data = request.get_json(silent=True)
 
     if not data or "action" not in data:
         log.warning(f"Invalid webhook payload: {data}")
-        return jsonify({"error": "Invalid payload — expected {\"action\": \"buy/sell/sl\"}"}), 400
+        return jsonify({"error": "Invalid payload — expected {\"action\": \"buy/sell/x\"}"}), 400
 
     action    = data["action"].lower().strip()
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -79,8 +74,6 @@ def webhook():
             handle_sell()
         elif action == "x":
             handle_x()
-        elif action == "sl":
-            handle_sl()
         else:
             log.warning(f"Unknown action: {action}")
             return jsonify({"error": f"Unknown action: {action}"}), 400
@@ -96,16 +89,7 @@ def webhook():
 # SIGNAL HANDLERS
 # ══════════════════════════════════════════════════════════════
 
-def _is_blocked(label: str) -> bool:
-    elapsed = time.time() - last_open_time
-    if elapsed < OPEN_BLOCK_SECS:
-        log.info(f"{label} signal ignored — {elapsed:.1f}s since last open (block={OPEN_BLOCK_SECS}s)")
-        return True
-    return False
-
-
 def handle_buy():
-    global last_open_time
     capital        = get_capital()
     positions      = capital.get_positions(EPIC)
     sell_positions = [p for p in positions if p["direction"] == "SELL"]
@@ -117,12 +101,10 @@ def handle_buy():
             log.info(f"  Closed SELL {pos['dealId']}")
 
     capital.open_position(EPIC, "BUY", TRADE_SIZE)
-    last_open_time = time.time()
     log.info(f"Opened BUY {TRADE_SIZE} x {EPIC}")
 
 
 def handle_sell():
-    global last_open_time
     capital       = get_capital()
     positions     = capital.get_positions(EPIC)
     buy_positions = [p for p in positions if p["direction"] == "BUY"]
@@ -134,14 +116,10 @@ def handle_sell():
             log.info(f"  Closed BUY {pos['dealId']}")
 
     capital.open_position(EPIC, "SELL", TRADE_SIZE)
-    last_open_time = time.time()
     log.info(f"Opened SELL {TRADE_SIZE} x {EPIC}")
 
 
 def handle_x():
-    if _is_blocked("X"):
-        return
-
     capital   = get_capital()
     positions = capital.get_positions(EPIC)
 
@@ -149,27 +127,15 @@ def handle_x():
         log.info("X signal — no open positions")
         return
 
-    log.info(f"X signal: closing {len(positions)} position(s)")
     for pos in positions:
-        capital.close_position(pos["dealId"])
-        log.info(f"  Closed {pos['direction']} {pos['dealId']} at X")
+        half_size = pos["size"] / 2
+        log.info(f"X signal: partially closing {pos['direction']} {pos['dealId']} — closing {half_size} of {pos['size']}")
+        capital.partial_close(EPIC, pos["direction"], half_size)
 
-
-def handle_sl():
-    if _is_blocked("SL"):
-        return
-
-    capital   = get_capital()
-    positions = capital.get_positions(EPIC)
-
-    if not positions:
-        log.info("SL signal — no open positions")
-        return
-
-    log.info(f"SL signal: closing {len(positions)} position(s)")
-    for pos in positions:
-        capital.close_position(pos["dealId"])
-        log.info(f"  Closed {pos['direction']} {pos['dealId']}")
+    remaining = capital.get_positions(EPIC)
+    for pos in remaining:
+        log.info(f"Setting breakeven SL on remaining {pos['direction']} {pos['dealId']}")
+        capital.set_sl_breakeven(pos["dealId"])
 
 
 # ══════════════════════════════════════════════════════════════
