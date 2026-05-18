@@ -6,6 +6,7 @@ Signals: buy, sell, x
 
 import os
 import logging
+import requests
 from datetime import datetime
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
@@ -26,9 +27,11 @@ log = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # ── Settings ───────────────────────────────────────────────────
-EPIC        = "GOLD"
-TRADE_SIZE  = float(os.getenv("TRADE_SIZE", "1"))
-SL_DISTANCE = float(os.getenv("SL_DISTANCE", "80"))
+EPIC             = "GOLD"
+TRADE_SIZE       = float(os.getenv("TRADE_SIZE", "1"))
+SL_DISTANCE      = float(os.getenv("SL_DISTANCE", "80"))
+TELEGRAM_TOKEN   = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 # ── Capital.com client ─────────────────────────────────────────
 def get_capital():
@@ -38,6 +41,23 @@ def get_capital():
         account_id = os.getenv("CAPITAL_ACCOUNT_ID"),
         env        = os.getenv("CAPITAL_ENV", "demo")
     )
+
+
+# ── Telegram ───────────────────────────────────────────────────
+def notify(capital, lines):
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    pnl     = capital.get_daily_pnl()
+    pnl_str = f"${pnl}" if pnl is not None else "unavailable"
+    text    = "\n".join(lines) + f"\n\nDaily P&L: {pnl_str}"
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={"chat_id": TELEGRAM_CHAT_ID, "text": text},
+            timeout=5
+        )
+    except Exception as e:
+        log.warning(f"Telegram notification failed: {e}")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -100,9 +120,23 @@ def handle_buy():
         for pos in sell_positions:
             capital.close_position(pos["dealId"])
             log.info(f"  Closed SELL {pos['dealId']}")
+            notify(capital, [
+                "Position Closed",
+                f"Direction: SELL",
+                f"Epic: {EPIC}",
+                f"Size: {pos['size']}",
+                f"Reason: BUY reversal"
+            ])
 
     capital.open_position(EPIC, "BUY", TRADE_SIZE, SL_DISTANCE)
     log.info(f"Opened BUY {TRADE_SIZE} x {EPIC} with SL distance {SL_DISTANCE}")
+    notify(capital, [
+        "Position Opened",
+        f"Direction: BUY",
+        f"Epic: {EPIC}",
+        f"Size: {TRADE_SIZE}",
+        f"SL Distance: {SL_DISTANCE}"
+    ])
 
 
 def handle_sell():
@@ -115,9 +149,23 @@ def handle_sell():
         for pos in buy_positions:
             capital.close_position(pos["dealId"])
             log.info(f"  Closed BUY {pos['dealId']}")
+            notify(capital, [
+                "Position Closed",
+                f"Direction: BUY",
+                f"Epic: {EPIC}",
+                f"Size: {pos['size']}",
+                f"Reason: SELL reversal"
+            ])
 
     capital.open_position(EPIC, "SELL", TRADE_SIZE, SL_DISTANCE)
     log.info(f"Opened SELL {TRADE_SIZE} x {EPIC} with SL distance {SL_DISTANCE}")
+    notify(capital, [
+        "Position Opened",
+        f"Direction: SELL",
+        f"Epic: {EPIC}",
+        f"Size: {TRADE_SIZE}",
+        f"SL Distance: {SL_DISTANCE}"
+    ])
 
 
 def handle_x():
@@ -132,6 +180,13 @@ def handle_x():
     for pos in positions:
         capital.close_position(pos["dealId"])
         log.info(f"  Closed {pos['direction']} {pos['dealId']}")
+        notify(capital, [
+            "Position Closed",
+            f"Direction: {pos['direction']}",
+            f"Epic: {EPIC}",
+            f"Size: {pos['size']}",
+            f"Reason: X signal"
+        ])
 
 
 # ══════════════════════════════════════════════════════════════
