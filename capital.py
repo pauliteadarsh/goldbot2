@@ -115,8 +115,7 @@ class CapitalClient:
         now   = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
         try:
             data  = self._request("GET", f"/api/v1/history/transactions?type=TRADE&from={today}&to={now}")
-            log.info(f"Daily P&L raw response: {data}")
-            total = sum(float(t.get("profitAndLoss", 0)) for t in data.get("items", []))
+            total = sum(float(t.get("size", 0)) for t in data.get("transactions", []))
             return round(total, 2)
         except Exception as e:
             log.warning(f"Could not fetch daily P&L: {e}")

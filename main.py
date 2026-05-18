@@ -69,15 +69,6 @@ def health():
     return jsonify({"status": "running", "time": datetime.now().isoformat()})
 
 
-@app.route("/debug/pnl", methods=["GET"])
-def debug_pnl():
-    from datetime import datetime, timezone
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00")
-    now   = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
-    capital = get_capital()
-    data    = capital._request("GET", f"/api/v1/history/transactions?type=TRADE&from={today}&to={now}")
-    return jsonify(data)
-
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
