@@ -89,18 +89,14 @@ class CapitalClient:
         log.info(f"Open positions for {epic or 'all'}: {len(positions)}")
         return positions
 
-    def open_position(self, epic, direction, size, stop_amount=None, profit_amount=None):
+    def open_position(self, epic, direction, size):
         body = {
             "epic":           epic,
             "direction":      direction,
             "size":           size,
             "guaranteedStop": False
         }
-        if stop_amount is not None:
-            body["stopAmount"] = stop_amount
-        if profit_amount is not None:
-            body["profitAmount"] = profit_amount
-        log.info(f"Opening {direction} {size} x {epic} (stopAmount={stop_amount}, profitAmount={profit_amount})")
+        log.info(f"Opening {direction} {size} x {epic}")
         result = self._request("POST", "/api/v1/positions", json=body)
         log.info(f"Open position result: {result}")
         return result
