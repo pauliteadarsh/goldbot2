@@ -48,7 +48,7 @@ def notify(capital, action, direction, size):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         return
     pnl     = capital.get_daily_pnl()
-    pnl_str = f"${pnl}" if pnl is not None else "unavailable"
+    pnl_str = f"AED {pnl}" if pnl is not None else "unavailable"
     text    = f"{action}\nDirection: {direction}\nSize: {size}\n\nDaily P&L: {pnl_str}"
     try:
         requests.post(
