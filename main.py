@@ -29,7 +29,8 @@ app = Flask(__name__)
 # ── Settings ───────────────────────────────────────────────────
 EPIC             = "GOLD"
 TRADE_SIZE       = float(os.getenv("TRADE_SIZE", "1"))
-SL_DISTANCE      = float(os.getenv("SL_DISTANCE", "80"))
+SL_AMOUNT        = float(os.getenv("SL_AMOUNT", "10"))
+TP_AMOUNT        = float(os.getenv("TP_AMOUNT", "10"))
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
@@ -123,8 +124,8 @@ def handle_buy():
             log.info(f"  Closed SELL {pos['dealId']}")
             notify(capital, "Position Closed", "SELL", pos['size'])
 
-    capital.open_position(EPIC, "BUY", TRADE_SIZE, SL_DISTANCE)
-    log.info(f"Opened BUY {TRADE_SIZE} x {EPIC} with SL distance {SL_DISTANCE}")
+    capital.open_position(EPIC, "BUY", TRADE_SIZE, SL_AMOUNT, TP_AMOUNT)
+    log.info(f"Opened BUY {TRADE_SIZE} x {EPIC} | SL={SL_AMOUNT} AED | TP={TP_AMOUNT} AED")
     notify(capital, "Position Opened", "BUY", TRADE_SIZE)
 
 
@@ -140,8 +141,8 @@ def handle_sell():
             log.info(f"  Closed BUY {pos['dealId']}")
             notify(capital, "Position Closed", "BUY", pos['size'])
 
-    capital.open_position(EPIC, "SELL", TRADE_SIZE, SL_DISTANCE)
-    log.info(f"Opened SELL {TRADE_SIZE} x {EPIC} with SL distance {SL_DISTANCE}")
+    capital.open_position(EPIC, "SELL", TRADE_SIZE, SL_AMOUNT, TP_AMOUNT)
+    log.info(f"Opened SELL {TRADE_SIZE} x {EPIC} | SL={SL_AMOUNT} AED | TP={TP_AMOUNT} AED")
     notify(capital, "Position Opened", "SELL", TRADE_SIZE)
 
 
