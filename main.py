@@ -127,15 +127,10 @@ def handle_x():
         log.info("X signal — no open positions")
         return
 
+    log.info(f"X signal: closing {len(positions)} position(s)")
     for pos in positions:
-        half_size = pos["size"] / 2
-        log.info(f"X signal: partially closing {pos['direction']} {pos['dealId']} — closing {half_size} of {pos['size']}")
-        capital.partial_close(EPIC, pos["direction"], half_size)
-
-    remaining = capital.get_positions(EPIC)
-    for pos in remaining:
-        log.info(f"Setting breakeven SL on remaining {pos['direction']} {pos['dealId']}")
-        capital.set_sl_breakeven(pos["dealId"])
+        capital.close_position(pos["dealId"])
+        log.info(f"  Closed {pos['direction']} {pos['dealId']}")
 
 
 # ══════════════════════════════════════════════════════════════
