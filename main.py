@@ -26,8 +26,9 @@ log = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # ── Settings ───────────────────────────────────────────────────
-EPIC       = "GOLD"
-TRADE_SIZE = float(os.getenv("TRADE_SIZE", "1"))
+EPIC        = "GOLD"
+TRADE_SIZE  = float(os.getenv("TRADE_SIZE", "1"))
+SL_DISTANCE = float(os.getenv("SL_DISTANCE", "80"))
 
 # ── Capital.com client ─────────────────────────────────────────
 def get_capital():
@@ -100,8 +101,8 @@ def handle_buy():
             capital.close_position(pos["dealId"])
             log.info(f"  Closed SELL {pos['dealId']}")
 
-    capital.open_position(EPIC, "BUY", TRADE_SIZE)
-    log.info(f"Opened BUY {TRADE_SIZE} x {EPIC}")
+    capital.open_position(EPIC, "BUY", TRADE_SIZE, SL_DISTANCE)
+    log.info(f"Opened BUY {TRADE_SIZE} x {EPIC} with SL distance {SL_DISTANCE}")
 
 
 def handle_sell():
@@ -115,8 +116,8 @@ def handle_sell():
             capital.close_position(pos["dealId"])
             log.info(f"  Closed BUY {pos['dealId']}")
 
-    capital.open_position(EPIC, "SELL", TRADE_SIZE)
-    log.info(f"Opened SELL {TRADE_SIZE} x {EPIC}")
+    capital.open_position(EPIC, "SELL", TRADE_SIZE, SL_DISTANCE)
+    log.info(f"Opened SELL {TRADE_SIZE} x {EPIC} with SL distance {SL_DISTANCE}")
 
 
 def handle_x():
