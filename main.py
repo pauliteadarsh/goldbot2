@@ -44,12 +44,12 @@ def get_capital():
 
 
 # ── Telegram ───────────────────────────────────────────────────
-def notify(capital, lines):
+def notify(capital, action, direction, size):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         return
     pnl     = capital.get_daily_pnl()
     pnl_str = f"${pnl}" if pnl is not None else "unavailable"
-    text    = "\n".join(lines) + f"\n\nDaily P&L: {pnl_str}"
+    text    = f"{action}\nDirection: {direction}\nSize: {size}\n\nDaily P&L: {pnl_str}"
     try:
         requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
@@ -120,23 +120,11 @@ def handle_buy():
         for pos in sell_positions:
             capital.close_position(pos["dealId"])
             log.info(f"  Closed SELL {pos['dealId']}")
-            notify(capital, [
-                "Position Closed",
-                f"Direction: SELL",
-                f"Epic: {EPIC}",
-                f"Size: {pos['size']}",
-                f"Reason: BUY reversal"
-            ])
+            notify(capital, "Position Closed", "SELL", pos['size'])
 
     capital.open_position(EPIC, "BUY", TRADE_SIZE, SL_DISTANCE)
     log.info(f"Opened BUY {TRADE_SIZE} x {EPIC} with SL distance {SL_DISTANCE}")
-    notify(capital, [
-        "Position Opened",
-        f"Direction: BUY",
-        f"Epic: {EPIC}",
-        f"Size: {TRADE_SIZE}",
-        f"SL Distance: {SL_DISTANCE}"
-    ])
+    notify(capital, "Position Opened", "BUY", TRADE_SIZE)
 
 
 def handle_sell():
@@ -149,23 +137,11 @@ def handle_sell():
         for pos in buy_positions:
             capital.close_position(pos["dealId"])
             log.info(f"  Closed BUY {pos['dealId']}")
-            notify(capital, [
-                "Position Closed",
-                f"Direction: BUY",
-                f"Epic: {EPIC}",
-                f"Size: {pos['size']}",
-                f"Reason: SELL reversal"
-            ])
+            notify(capital, "Position Closed", "BUY", pos['size'])
 
     capital.open_position(EPIC, "SELL", TRADE_SIZE, SL_DISTANCE)
     log.info(f"Opened SELL {TRADE_SIZE} x {EPIC} with SL distance {SL_DISTANCE}")
-    notify(capital, [
-        "Position Opened",
-        f"Direction: SELL",
-        f"Epic: {EPIC}",
-        f"Size: {TRADE_SIZE}",
-        f"SL Distance: {SL_DISTANCE}"
-    ])
+    notify(capital, "Position Opened", "SELL", TRADE_SIZE)
 
 
 def handle_x():
@@ -180,13 +156,7 @@ def handle_x():
     for pos in positions:
         capital.close_position(pos["dealId"])
         log.info(f"  Closed {pos['direction']} {pos['dealId']}")
-        notify(capital, [
-            "Position Closed",
-            f"Direction: {pos['direction']}",
-            f"Epic: {EPIC}",
-            f"Size: {pos['size']}",
-            f"Reason: X signal"
-        ])
+        notify(capital, "Position Closed", pos['direction'], pos['size'])
 
 
 # ══════════════════════════════════════════════════════════════
