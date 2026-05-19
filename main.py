@@ -95,6 +95,8 @@ def webhook():
             handle_sell()
         elif action == "x":
             handle_x()
+        elif action == "x50":
+            handle_x50()
         else:
             log.warning(f"Unknown action: {action}")
             return jsonify({"error": f"Unknown action: {action}"}), 400
@@ -157,6 +159,22 @@ def handle_x():
         capital.close_position(pos["dealId"])
         log.info(f"  Closed {pos['direction']} {pos['dealId']}")
         notify(capital, "Position Closed", pos['direction'], pos['size'])
+
+
+def handle_x50():
+    capital   = get_capital()
+    positions = capital.get_positions(EPIC)
+
+    if not positions:
+        log.info("X50 signal — no open positions")
+        return
+
+    log.info(f"X50 signal: closing 50% of {len(positions)} position(s)")
+    for pos in positions:
+        half_size = pos["size"] / 2
+        capital.partial_close(EPIC, pos["direction"], half_size)
+        log.info(f"  Partial close {pos['direction']} {pos['dealId']} — closed {half_size} of {pos['size']}")
+        notify(capital, "50% Position Closed", pos['direction'], half_size)
 
 
 # ══════════════════════════════════════════════════════════════
