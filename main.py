@@ -176,6 +176,11 @@ def handle_x50():
         log.info(f"  Partial close {pos['direction']} {pos['dealId']} — closed {half_size} of {pos['size']}")
         notify(capital, "50% Position Closed", pos['direction'], half_size)
 
+    remaining = capital.get_positions(EPIC)
+    for pos in remaining:
+        capital.set_sl_breakeven(pos["dealId"])
+        log.info(f"  Breakeven SL set on {pos['direction']} {pos['dealId']}")
+
 
 # ══════════════════════════════════════════════════════════════
 # START
