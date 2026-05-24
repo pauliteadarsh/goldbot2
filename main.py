@@ -5,7 +5,7 @@ Listens for TradingView alerts and places trades on Capital.com
 Actions:
   buy           — close any opposite SELL, open BUY
   sell          — close any opposite BUY, open SELL
-  partial close — close PARTIAL_CLOSE_PCT of each open position, re-open remainder
+  partial close — place opposite order for PARTIAL_CLOSE_PCT of position size
   close         — close all open positions
 """
 

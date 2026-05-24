@@ -89,16 +89,14 @@ class CapitalClient:
         log.info(f"Open positions for {epic or 'all'}: {len(positions)}")
         return positions
 
-    def open_position(self, epic, direction, size, stop_distance=None):
+    def open_position(self, epic, direction, size):
         body = {
             "epic":           epic,
             "direction":      direction,
             "size":           size,
             "guaranteedStop": False
         }
-        if stop_distance is not None:
-            body["stopDistance"] = stop_distance
-        log.info(f"Opening {direction} {size} x {epic} (stopDistance={stop_distance})")
+        log.info(f"Opening {direction} {size} x {epic}")
         result = self._request("POST", "/api/v1/positions", json=body)
         log.info(f"Open position result: {result}")
         return result
@@ -109,13 +107,31 @@ class CapitalClient:
         log.info(f"Close position result: {result}")
         return result
 
+    def set_sl_breakeven(self, deal_id):
+        log.info(f"Setting breakeven SL (stopAmount=0) on {deal_id}")
+        result = self._request("PUT", f"/api/v1/positions/{deal_id}", json={"stopAmount": 0})
+        log.info(f"Set SL result: {result}")
+        return result
+
+    def partial_close(self, epic, direction, size):
+        opposite = "SELL" if direction == "BUY" else "BUY"
+        log.info(f"Partial close: opening {opposite} {size} x {epic}")
+        result = self._request("POST", "/api/v1/positions", json={
+            "epic":           epic,
+            "direction":      opposite,
+            "size":           size,
+            "guaranteedStop": False
+        })
+        log.info(f"Partial close result: {result}")
+        return result
+
     def get_daily_pnl(self):
         from datetime import datetime, timezone
         today = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00")
         now   = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
         try:
             data  = self._request("GET", f"/api/v1/history/transactions?type=TRADE&from={today}&to={now}")
-            total = sum(float(t.get("profitAndLoss", 0)) for t in data.get("items", []))
+            total = sum(float(t.get("size", 0)) for t in data.get("transactions", []))
             return round(total, 2)
         except Exception as e:
             log.warning(f"Could not fetch daily P&L: {e}")
