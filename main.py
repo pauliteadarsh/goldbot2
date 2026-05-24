@@ -7,9 +7,6 @@ Actions:
   sell          — close any opposite BUY, open SELL
   partial close — close PARTIAL_CLOSE_PCT of each open position, re-open remainder
   close         — close all open positions
-
-TradingView alert messages are matched case-insensitively.
-Legacy aliases "close all" and "close 50%" are also accepted.
 """
 
 import os
@@ -98,9 +95,9 @@ def webhook():
             handle_buy()
         elif action == "sell":
             handle_sell()
-        elif action in ("partial close", "close 50%"):
+        elif action == "partial close":
             handle_partial_close()
-        elif action in ("close", "close all"):
+        elif action == "close":
             handle_close()
         else:
             log.warning(f"Unknown action: {action!r}")
