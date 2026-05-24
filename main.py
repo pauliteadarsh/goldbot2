@@ -36,7 +36,6 @@ EPIC              = os.getenv("EPIC", "GOLD")
 TRADE_SIZE        = float(os.getenv("TRADE_SIZE", "1"))
 SL_DISTANCE       = float(os.getenv("SL_DISTANCE", "80"))
 PARTIAL_CLOSE_PCT = float(os.getenv("PARTIAL_CLOSE_PCT", "0.70"))  # fraction to close, e.g. 0.70 = 70%
-MIN_TRADE_SIZE    = float(os.getenv("MIN_TRADE_SIZE", "0.10"))      # don't re-open below this size
 TELEGRAM_TOKEN    = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID  = os.getenv("TELEGRAM_CHAT_ID")
 
@@ -141,8 +140,8 @@ def handle_sell():
 
 def handle_partial_close():
     """
-    Close PARTIAL_CLOSE_PCT of each open position and re-open the remainder.
-    If the remaining size would be below MIN_TRADE_SIZE the position is fully closed.
+    Partially close PARTIAL_CLOSE_PCT of each open position by placing an
+    opposite order of that size (Capital.com nets the positions).
     """
     capital   = get_capital()
     positions = capital.get_positions(EPIC)
@@ -151,34 +150,22 @@ def handle_partial_close():
         log.info("Partial close: no open positions")
         return
 
-    close_pct = PARTIAL_CLOSE_PCT
-    keep_pct  = round(1.0 - close_pct, 10)
-    log.info(f"Partial close {close_pct*100:.0f}% across {len(positions)} position(s)")
+    log.info(f"Partial close {PARTIAL_CLOSE_PCT*100:.0f}% across {len(positions)} position(s)")
 
     for pos in positions:
         direction     = pos["direction"]
         original_size = float(pos["size"])
-        keep_size     = round(original_size * keep_pct, 2)
+        close_size    = round(original_size * PARTIAL_CLOSE_PCT, 2)
+        opposite      = "SELL" if direction == "BUY" else "BUY"
 
-        capital.close_position(pos["dealId"])
-        log.info(f"  Closed {direction} {pos['dealId']} (original size={original_size})")
-
-        if keep_size >= MIN_TRADE_SIZE:
-            capital.open_position(EPIC, direction, keep_size, SL_DISTANCE)
-            log.info(f"  Re-opened {direction} size={keep_size} (kept {keep_pct*100:.0f}%)")
-            notify(
-                f"⚡ Partial close {close_pct*100:.0f}%\n"
-                f"Direction: {direction}\n"
-                f"Closed: {original_size} — Remaining: {keep_size}\n"
-                f"Daily P&L: {_daily_pnl(capital)}"
-            )
-        else:
-            log.info(f"  Remaining size {keep_size} < min {MIN_TRADE_SIZE} — fully closed")
-            notify(
-                f"⚡ Partial close {close_pct*100:.0f}% (fully closed — remaining {keep_size} < min {MIN_TRADE_SIZE})\n"
-                f"Direction: {direction}\n"
-                f"Daily P&L: {_daily_pnl(capital)}"
-            )
+        capital.open_position(EPIC, opposite, close_size)
+        log.info(f"  Placed {opposite} {close_size} to offset {direction} {original_size}")
+        notify(
+            f"⚡ Partial close {PARTIAL_CLOSE_PCT*100:.0f}%\n"
+            f"Direction: {direction}\n"
+            f"Offset order: {opposite} {close_size}\n"
+            f"Daily P&L: {_daily_pnl(capital)}"
+        )
 
 
 def handle_close():
