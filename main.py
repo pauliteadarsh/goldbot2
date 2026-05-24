@@ -1,7 +1,15 @@
 """
-Gold Bot 2 — Main webhook server
+Gold Bot 2 — Webhook server
 Listens for TradingView alerts and places trades on Capital.com
-Signals: buy, sell, x
+
+Actions:
+  buy           — close any opposite SELL, open BUY
+  sell          — close any opposite BUY, open SELL
+  partial close — close PARTIAL_CLOSE_PCT of each open position, re-open remainder
+  close         — close all open positions
+
+TradingView alert messages are matched case-insensitively.
+Legacy aliases "close all" and "close 50%" are also accepted.
 """
 
 import os
@@ -19,45 +27,50 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler("bot.log")
-    ]
+        logging.FileHandler("bot.log"),
+    ],
 )
 log = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# ── Settings ───────────────────────────────────────────────────
-EPIC             = "GOLD"
-TRADE_SIZE       = float(os.getenv("TRADE_SIZE", "1"))
-SL_DISTANCE      = float(os.getenv("SL_DISTANCE", "80"))
-TELEGRAM_TOKEN   = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+# ── Configuration (set via Railway environment variables) ──────
+EPIC              = os.getenv("EPIC", "GOLD")
+TRADE_SIZE        = float(os.getenv("TRADE_SIZE", "1"))
+SL_DISTANCE       = float(os.getenv("SL_DISTANCE", "80"))
+PARTIAL_CLOSE_PCT = float(os.getenv("PARTIAL_CLOSE_PCT", "0.70"))  # fraction to close, e.g. 0.70 = 70%
+MIN_TRADE_SIZE    = float(os.getenv("MIN_TRADE_SIZE", "0.10"))      # don't re-open below this size
+TELEGRAM_TOKEN    = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID  = os.getenv("TELEGRAM_CHAT_ID")
+
 
 # ── Capital.com client ─────────────────────────────────────────
-def get_capital():
+def get_capital() -> CapitalClient:
     return CapitalClient(
         api_key    = os.getenv("CAPITAL_API_KEY"),
         password   = os.getenv("CAPITAL_PASSWORD"),
         account_id = os.getenv("CAPITAL_ACCOUNT_ID"),
-        env        = os.getenv("CAPITAL_ENV", "demo")
+        env        = os.getenv("CAPITAL_ENV", "demo"),
     )
 
 
 # ── Telegram ───────────────────────────────────────────────────
-def notify(capital, action, direction, size):
+def notify(msg: str):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         return
-    pnl     = capital.get_daily_pnl()
-    pnl_str = f"AED {pnl}" if pnl is not None else "unavailable"
-    text    = f"{action}\nDirection: {direction}\nSize: {size}\n\nDaily P&L: {pnl_str}"
     try:
         requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-            json={"chat_id": TELEGRAM_CHAT_ID, "text": text},
-            timeout=5
+            json={"chat_id": TELEGRAM_CHAT_ID, "text": msg},
+            timeout=5,
         )
     except Exception as e:
-        log.warning(f"Telegram notification failed: {e}")
+        log.warning(f"Telegram failed: {e}")
+
+
+def _daily_pnl(capital: CapitalClient) -> str:
+    pnl = capital.get_daily_pnl()
+    return f"AED {pnl}" if pnl is not None else "unavailable"
 
 
 # ══════════════════════════════════════════════════════════════
@@ -71,92 +84,120 @@ def health():
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    """
-    TradingView sends alerts here.
-    Expected payloads:
-      {"action": "buy"}
-      {"action": "sell"}
-      {"action": "x"}
-    """
     data = request.get_json(silent=True)
-
     if not data or "action" not in data:
-        log.warning(f"Invalid webhook payload: {data}")
-        return jsonify({"error": "Invalid payload — expected {\"action\": \"buy/sell/x\"}"}), 400
+        log.warning(f"Bad payload: {data}")
+        return jsonify({"error": "Expected JSON with 'action' key"}), 400
 
     action    = data["action"].lower().strip()
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log.info(f"[{timestamp}] Webhook received: action={action}")
+    log.info(f"[{timestamp}] action={action!r}")
 
     try:
         if action == "buy":
             handle_buy()
         elif action == "sell":
             handle_sell()
-        elif action == "x":
-            handle_x()
+        elif action in ("partial close", "close 50%"):
+            handle_partial_close()
+        elif action in ("close", "close all"):
+            handle_close()
         else:
-            log.warning(f"Unknown action: {action}")
+            log.warning(f"Unknown action: {action!r}")
             return jsonify({"error": f"Unknown action: {action}"}), 400
-
     except Exception as e:
-        log.error(f"Error handling '{action}': {e}")
+        log.error(f"Error handling {action!r}: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
     return jsonify({"status": "ok", "action": action})
 
 
 # ══════════════════════════════════════════════════════════════
-# SIGNAL HANDLERS
+# HANDLERS
 # ══════════════════════════════════════════════════════════════
 
 def handle_buy():
-    capital        = get_capital()
-    positions      = capital.get_positions(EPIC)
-    sell_positions = [p for p in positions if p["direction"] == "SELL"]
+    capital   = get_capital()
+    positions = capital.get_positions(EPIC)
 
-    if sell_positions:
-        log.info(f"BUY: closing {len(sell_positions)} SELL position(s) first")
-        for pos in sell_positions:
-            capital.close_position(pos["dealId"])
-            log.info(f"  Closed SELL {pos['dealId']}")
-            notify(capital, "Position Closed", "SELL", pos['size'])
+    for pos in [p for p in positions if p["direction"] == "SELL"]:
+        capital.close_position(pos["dealId"])
+        log.info(f"  Closed SELL {pos['dealId']} size={pos['size']}")
 
     capital.open_position(EPIC, "BUY", TRADE_SIZE, SL_DISTANCE)
-    log.info(f"Opened BUY {TRADE_SIZE} x {EPIC} with SL distance {SL_DISTANCE}")
-    notify(capital, "Position Opened", "BUY", TRADE_SIZE)
+    log.info(f"Opened BUY size={TRADE_SIZE} SL={SL_DISTANCE}")
+    notify(f"🟢 BUY opened\nSize: {TRADE_SIZE}\nDaily P&L: {_daily_pnl(capital)}")
 
 
 def handle_sell():
-    capital       = get_capital()
-    positions     = capital.get_positions(EPIC)
-    buy_positions = [p for p in positions if p["direction"] == "BUY"]
+    capital   = get_capital()
+    positions = capital.get_positions(EPIC)
 
-    if buy_positions:
-        log.info(f"SELL: closing {len(buy_positions)} BUY position(s) first")
-        for pos in buy_positions:
-            capital.close_position(pos["dealId"])
-            log.info(f"  Closed BUY {pos['dealId']}")
-            notify(capital, "Position Closed", "BUY", pos['size'])
+    for pos in [p for p in positions if p["direction"] == "BUY"]:
+        capital.close_position(pos["dealId"])
+        log.info(f"  Closed BUY {pos['dealId']} size={pos['size']}")
 
     capital.open_position(EPIC, "SELL", TRADE_SIZE, SL_DISTANCE)
-    log.info(f"Opened SELL {TRADE_SIZE} x {EPIC} with SL distance {SL_DISTANCE}")
-    notify(capital, "Position Opened", "SELL", TRADE_SIZE)
+    log.info(f"Opened SELL size={TRADE_SIZE} SL={SL_DISTANCE}")
+    notify(f"🔴 SELL opened\nSize: {TRADE_SIZE}\nDaily P&L: {_daily_pnl(capital)}")
 
 
-def handle_x():
+def handle_partial_close():
+    """
+    Close PARTIAL_CLOSE_PCT of each open position and re-open the remainder.
+    If the remaining size would be below MIN_TRADE_SIZE the position is fully closed.
+    """
     capital   = get_capital()
     positions = capital.get_positions(EPIC)
 
     if not positions:
-        log.info("X signal — no open positions")
+        log.info("Partial close: no open positions")
         return
 
-    log.info(f"X signal: closing {len(positions)} position(s)")
+    close_pct = PARTIAL_CLOSE_PCT
+    keep_pct  = round(1.0 - close_pct, 10)
+    log.info(f"Partial close {close_pct*100:.0f}% across {len(positions)} position(s)")
+
+    for pos in positions:
+        direction     = pos["direction"]
+        original_size = float(pos["size"])
+        keep_size     = round(original_size * keep_pct, 2)
+
+        capital.close_position(pos["dealId"])
+        log.info(f"  Closed {direction} {pos['dealId']} (original size={original_size})")
+
+        if keep_size >= MIN_TRADE_SIZE:
+            capital.open_position(EPIC, direction, keep_size, SL_DISTANCE)
+            log.info(f"  Re-opened {direction} size={keep_size} (kept {keep_pct*100:.0f}%)")
+            notify(
+                f"⚡ Partial close {close_pct*100:.0f}%\n"
+                f"Direction: {direction}\n"
+                f"Closed: {original_size} — Remaining: {keep_size}\n"
+                f"Daily P&L: {_daily_pnl(capital)}"
+            )
+        else:
+            log.info(f"  Remaining size {keep_size} < min {MIN_TRADE_SIZE} — fully closed")
+            notify(
+                f"⚡ Partial close {close_pct*100:.0f}% (fully closed — remaining {keep_size} < min {MIN_TRADE_SIZE})\n"
+                f"Direction: {direction}\n"
+                f"Daily P&L: {_daily_pnl(capital)}"
+            )
+
+
+def handle_close():
+    capital   = get_capital()
+    positions = capital.get_positions(EPIC)
+
+    if not positions:
+        log.info("Close: no open positions")
+        return
+
+    log.info(f"Closing all {len(positions)} position(s)")
     for pos in positions:
         capital.close_position(pos["dealId"])
-        log.info(f"  Closed {pos['direction']} {pos['dealId']}")
-        notify(capital, "Position Closed", pos['direction'], pos['size'])
+        log.info(f"  Closed {pos['direction']} {pos['dealId']} size={pos['size']}")
+
+    notify(f"❌ All positions closed\nCount: {len(positions)}\nDaily P&L: {_daily_pnl(capital)}")
 
 
 # ══════════════════════════════════════════════════════════════
