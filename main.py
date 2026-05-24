@@ -34,7 +34,6 @@ app = Flask(__name__)
 # ── Configuration (set via Railway environment variables) ──────
 EPIC              = os.getenv("EPIC", "GOLD")
 TRADE_SIZE        = float(os.getenv("TRADE_SIZE", "1"))
-SL_DISTANCE       = float(os.getenv("SL_DISTANCE", "80"))
 PARTIAL_CLOSE_PCT = float(os.getenv("PARTIAL_CLOSE_PCT", "0.70"))  # fraction to close, e.g. 0.70 = 70%
 TELEGRAM_TOKEN    = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID  = os.getenv("TELEGRAM_CHAT_ID")
@@ -120,8 +119,8 @@ def handle_buy():
         capital.close_position(pos["dealId"])
         log.info(f"  Closed SELL {pos['dealId']} size={pos['size']}")
 
-    capital.open_position(EPIC, "BUY", TRADE_SIZE, SL_DISTANCE)
-    log.info(f"Opened BUY size={TRADE_SIZE} SL={SL_DISTANCE}")
+    capital.open_position(EPIC, "BUY", TRADE_SIZE)
+    log.info(f"Opened BUY size={TRADE_SIZE}")
     notify(f"🟢 BUY opened\nSize: {TRADE_SIZE}\nDaily P&L: {_daily_pnl(capital)}")
 
 
@@ -133,8 +132,8 @@ def handle_sell():
         capital.close_position(pos["dealId"])
         log.info(f"  Closed BUY {pos['dealId']} size={pos['size']}")
 
-    capital.open_position(EPIC, "SELL", TRADE_SIZE, SL_DISTANCE)
-    log.info(f"Opened SELL size={TRADE_SIZE} SL={SL_DISTANCE}")
+    capital.open_position(EPIC, "SELL", TRADE_SIZE)
+    log.info(f"Opened SELL size={TRADE_SIZE}")
     notify(f"🔴 SELL opened\nSize: {TRADE_SIZE}\nDaily P&L: {_daily_pnl(capital)}")
 
 
