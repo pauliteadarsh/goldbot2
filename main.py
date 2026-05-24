@@ -32,7 +32,7 @@ log = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # ── Configuration (set via Railway environment variables) ──────
-EPIC              = os.getenv("EPIC", "GOLD")
+EPIC              = "GOLD"
 TRADE_SIZE        = float(os.getenv("TRADE_SIZE", "1"))
 PARTIAL_CLOSE_PCT = float(os.getenv("PARTIAL_CLOSE_PCT", "0.70"))  # fraction to close, e.g. 0.70 = 70%
 TELEGRAM_TOKEN    = os.getenv("TELEGRAM_BOT_TOKEN")
