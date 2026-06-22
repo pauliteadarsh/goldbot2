@@ -89,14 +89,16 @@ class CapitalClient:
         log.info(f"Open positions for {epic or 'all'}: {len(positions)}")
         return positions
 
-    def open_position(self, epic, direction, size):
+    def open_position(self, epic, direction, size, profit_distance=None):
         body = {
             "epic":           epic,
             "direction":      direction,
             "size":           size,
             "guaranteedStop": False
         }
-        log.info(f"Opening {direction} {size} x {epic}")
+        if profit_distance is not None:
+            body["profitDistance"] = profit_distance
+        log.info(f"Opening {direction} {size} x {epic}" + (f" (TP distance={profit_distance})" if profit_distance is not None else ""))
         result = self._request("POST", "/api/v1/positions", json=body)
         log.info(f"Open position result: {result}")
         return result

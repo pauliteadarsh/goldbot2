@@ -5,6 +5,8 @@ Listens for TradingView alerts and places trades on Capital.com
 Actions:
   buy           — close any opposite SELL, open BUY
   sell          — close any opposite BUY, open SELL
+                  (S4: if 3 SELLs are already open, also opens a special
+                  10x SELL with a 5-point TP and no SL)
   partial close — place opposite order for PARTIAL_CLOSE_PCT of position size
   close         — close all open positions
 """
@@ -35,6 +37,7 @@ app = Flask(__name__)
 EPIC              = "GOLD"
 TRADE_SIZE        = float(os.getenv("TRADE_SIZE", "1"))
 PARTIAL_CLOSE_PCT = float(os.getenv("PARTIAL_CLOSE_PCT", "0.70"))  # fraction to close, e.g. 0.70 = 70%
+S4_TP_DISTANCE    = float(os.getenv("S4_TP_DISTANCE", "5"))  # TP distance for the S4 special 10x trade
 TELEGRAM_TOKEN    = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID  = os.getenv("TELEGRAM_CHAT_ID")
 
@@ -132,9 +135,22 @@ def handle_sell():
         capital.close_position(pos["dealId"])
         log.info(f"  Closed BUY {pos['dealId']} size={pos['size']}")
 
+    existing_sells = len([p for p in positions if p["direction"] == "SELL"])
+
     capital.open_position(EPIC, "SELL", TRADE_SIZE)
     log.info(f"Opened SELL size={TRADE_SIZE}")
     notify(f"🔴 SELL opened\nSize: {TRADE_SIZE}\nDaily P&L: {_daily_pnl(capital)}")
+
+    if existing_sells == 3:
+        big_size = 10 * TRADE_SIZE
+        capital.open_position(EPIC, "SELL", big_size, profit_distance=S4_TP_DISTANCE)
+        log.info(f"S4 special trade: opened SELL size={big_size} TP_distance={S4_TP_DISTANCE}")
+        notify(
+            f"🔴⚡ S4 special SELL opened\n"
+            f"Size: {big_size}\n"
+            f"TP distance: {S4_TP_DISTANCE}\n"
+            f"Daily P&L: {_daily_pnl(capital)}"
+        )
 
 
 def handle_partial_close():
