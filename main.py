@@ -9,6 +9,8 @@ Actions:
   bvb           — close any opposite SELL, open a separate BUY with its own
                   TP/SL (BVB_TP_DISTANCE / BVB_SL_DISTANCE) — usually fired
                   alongside a normal buy alert
+  vb            — close any opposite SELL, open a separate BUY with TP
+                  only (VB_TP_DISTANCE), no SL
   sell          — close any opposite BUY, open SELL
   partial close — place opposite order for PARTIAL_CLOSE_PCT of position size
   close         — close all open positions
@@ -46,6 +48,8 @@ BUY_TP_DISTANCE   = float(os.getenv("BUY_TP_DISTANCE", "12"))  # TP distance for
 BVB_TRADE_SIZE    = float(os.getenv("BVB_TRADE_SIZE", str(TRADE_SIZE)))  # size of the BVB trade
 BVB_TP_DISTANCE   = float(os.getenv("BVB_TP_DISTANCE", "10"))  # TP distance for the BVB trade
 BVB_SL_DISTANCE   = float(os.getenv("BVB_SL_DISTANCE", "20"))  # SL distance for the BVB trade
+VB_TRADE_SIZE     = float(os.getenv("VB_TRADE_SIZE", str(TRADE_SIZE)))  # size of the VB trade
+VB_TP_DISTANCE    = float(os.getenv("VB_TP_DISTANCE", "25"))  # TP distance for the VB trade
 TELEGRAM_TOKEN    = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID  = os.getenv("TELEGRAM_CHAT_ID")
 
@@ -104,6 +108,8 @@ def webhook():
             handle_buy()
         elif action == "bvb":
             handle_bvb()
+        elif action == "vb":
+            handle_vb()
         elif action == "sell":
             handle_sell()
         elif action == "partial close":
@@ -165,6 +171,24 @@ def handle_bvb():
         f"Size: {BVB_TRADE_SIZE}\n"
         f"TP distance: {BVB_TP_DISTANCE}\n"
         f"SL distance: {BVB_SL_DISTANCE}\n"
+        f"Weekly P&L: {_weekly_pnl(capital)}"
+    )
+
+
+def handle_vb():
+    capital   = get_capital()
+    positions = capital.get_positions(EPIC)
+
+    for pos in [p for p in positions if p["direction"] == "SELL"]:
+        capital.close_position(pos["dealId"])
+        log.info(f"  Closed SELL {pos['dealId']} size={pos['size']}")
+
+    capital.open_position(EPIC, "BUY", VB_TRADE_SIZE, profit_distance=VB_TP_DISTANCE)
+    log.info(f"Opened VB BUY size={VB_TRADE_SIZE} TP_distance={VB_TP_DISTANCE}")
+    notify(
+        f"🟢🎯 VB BUY opened\n"
+        f"Size: {VB_TRADE_SIZE}\n"
+        f"TP distance: {VB_TP_DISTANCE}\n"
         f"Weekly P&L: {_weekly_pnl(capital)}"
     )
 
