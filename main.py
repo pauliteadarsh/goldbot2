@@ -6,6 +6,9 @@ Actions:
   buy           — close any opposite SELL, open BUY
                   also opens a second stacked BUY with a manual TP
                   (BUY_TP_DISTANCE) — closes on its TP or on a close signal
+  bvb           — close any opposite SELL, open a separate BUY with its own
+                  TP/SL (BVB_TP_DISTANCE / BVB_SL_DISTANCE) — usually fired
+                  alongside a normal buy alert
   sell          — close any opposite BUY, open SELL
   partial close — place opposite order for PARTIAL_CLOSE_PCT of position size
   close         — close all open positions
@@ -40,6 +43,9 @@ PARTIAL_CLOSE_PCT = float(os.getenv("PARTIAL_CLOSE_PCT", "0.70"))  # fraction to
 BUY_TP_TRADE_ENABLED = os.getenv("BUY_TP_TRADE_ENABLED", "true").lower() == "true"  # enable/disable the stacked TP trade on buy
 BUY_TP_TRADE_SIZE = float(os.getenv("BUY_TP_TRADE_SIZE", str(TRADE_SIZE)))  # size of the stacked TP trade
 BUY_TP_DISTANCE   = float(os.getenv("BUY_TP_DISTANCE", "12"))  # TP distance for the stacked TP trade
+BVB_TRADE_SIZE    = float(os.getenv("BVB_TRADE_SIZE", str(TRADE_SIZE)))  # size of the BVB trade
+BVB_TP_DISTANCE   = float(os.getenv("BVB_TP_DISTANCE", "10"))  # TP distance for the BVB trade
+BVB_SL_DISTANCE   = float(os.getenv("BVB_SL_DISTANCE", "20"))  # SL distance for the BVB trade
 TELEGRAM_TOKEN    = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID  = os.getenv("TELEGRAM_CHAT_ID")
 
@@ -96,6 +102,8 @@ def webhook():
     try:
         if action == "buy":
             handle_buy()
+        elif action == "bvb":
+            handle_bvb()
         elif action == "sell":
             handle_sell()
         elif action == "partial close":
@@ -137,6 +145,28 @@ def handle_buy():
             f"TP distance: {BUY_TP_DISTANCE}\n"
             f"Daily P&L: {_daily_pnl(capital)}"
         )
+
+
+def handle_bvb():
+    capital   = get_capital()
+    positions = capital.get_positions(EPIC)
+
+    for pos in [p for p in positions if p["direction"] == "SELL"]:
+        capital.close_position(pos["dealId"])
+        log.info(f"  Closed SELL {pos['dealId']} size={pos['size']}")
+
+    capital.open_position(
+        EPIC, "BUY", BVB_TRADE_SIZE,
+        profit_distance=BVB_TP_DISTANCE, stop_distance=BVB_SL_DISTANCE,
+    )
+    log.info(f"Opened BVB BUY size={BVB_TRADE_SIZE} TP_distance={BVB_TP_DISTANCE} SL_distance={BVB_SL_DISTANCE}")
+    notify(
+        f"🟢📌 BVB BUY opened\n"
+        f"Size: {BVB_TRADE_SIZE}\n"
+        f"TP distance: {BVB_TP_DISTANCE}\n"
+        f"SL distance: {BVB_SL_DISTANCE}\n"
+        f"Daily P&L: {_daily_pnl(capital)}"
+    )
 
 
 def handle_sell():
