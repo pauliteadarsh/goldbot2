@@ -8,9 +8,9 @@ Actions:
                   (BUY_TP_DISTANCE) — closes on its TP or on a close signal
   bvb           — close any opposite SELL, open a separate BUY with its own
                   TP/SL (BVB_TP_DISTANCE / BVB_SL_DISTANCE) — usually fired
-                  alongside a normal buy alert
+                  alongside a normal buy alert. Toggle via BVB_ENABLED.
   vb            — close any opposite SELL, open a separate BUY with TP
-                  only (VB_TP_DISTANCE), no SL
+                  only (VB_TP_DISTANCE), no SL. Toggle via VB_ENABLED.
   sell          — close any opposite BUY, open SELL
   partial close — place opposite order for PARTIAL_CLOSE_PCT of position size
   close         — close all open positions
@@ -45,9 +45,11 @@ PARTIAL_CLOSE_PCT = float(os.getenv("PARTIAL_CLOSE_PCT", "0.70"))  # fraction to
 BUY_TP_TRADE_ENABLED = os.getenv("BUY_TP_TRADE_ENABLED", "true").lower() == "true"  # enable/disable the stacked TP trade on buy
 BUY_TP_TRADE_SIZE = float(os.getenv("BUY_TP_TRADE_SIZE", str(TRADE_SIZE)))  # size of the stacked TP trade
 BUY_TP_DISTANCE   = float(os.getenv("BUY_TP_DISTANCE", "12"))  # TP distance for the stacked TP trade
+BVB_ENABLED       = os.getenv("BVB_ENABLED", "true").lower() == "true"  # enable/disable the bvb action
 BVB_TRADE_SIZE    = float(os.getenv("BVB_TRADE_SIZE", str(TRADE_SIZE)))  # size of the BVB trade
 BVB_TP_DISTANCE   = float(os.getenv("BVB_TP_DISTANCE", "10"))  # TP distance for the BVB trade
 BVB_SL_DISTANCE   = float(os.getenv("BVB_SL_DISTANCE", "20"))  # SL distance for the BVB trade
+VB_ENABLED        = os.getenv("VB_ENABLED", "true").lower() == "true"  # enable/disable the vb action
 VB_TRADE_SIZE     = float(os.getenv("VB_TRADE_SIZE", str(TRADE_SIZE)))  # size of the VB trade
 VB_TP_DISTANCE    = float(os.getenv("VB_TP_DISTANCE", "25"))  # TP distance for the VB trade
 TELEGRAM_TOKEN    = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -154,6 +156,10 @@ def handle_buy():
 
 
 def handle_bvb():
+    if not BVB_ENABLED:
+        log.info("BVB action disabled (BVB_ENABLED=false) — skipping")
+        return
+
     capital   = get_capital()
     positions = capital.get_positions(EPIC)
 
@@ -176,6 +182,10 @@ def handle_bvb():
 
 
 def handle_vb():
+    if not VB_ENABLED:
+        log.info("VB action disabled (VB_ENABLED=false) — skipping")
+        return
+
     capital   = get_capital()
     positions = capital.get_positions(EPIC)
 
