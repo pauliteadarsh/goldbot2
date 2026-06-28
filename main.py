@@ -74,8 +74,8 @@ def notify(msg: str):
         log.warning(f"Telegram failed: {e}")
 
 
-def _daily_pnl(capital: CapitalClient) -> str:
-    pnl = capital.get_daily_pnl()
+def _weekly_pnl(capital: CapitalClient) -> str:
+    pnl = capital.get_weekly_pnl()
     return f"AED {pnl}" if pnl is not None else "unavailable"
 
 
@@ -134,7 +134,7 @@ def handle_buy():
 
     capital.open_position(EPIC, "BUY", TRADE_SIZE)
     log.info(f"Opened BUY size={TRADE_SIZE}")
-    notify(f"🟢 BUY opened\nSize: {TRADE_SIZE}\nDaily P&L: {_daily_pnl(capital)}")
+    notify(f"🟢 BUY opened\nSize: {TRADE_SIZE}\nWeekly P&L: {_weekly_pnl(capital)}")
 
     if BUY_TP_TRADE_ENABLED:
         capital.open_position(EPIC, "BUY", BUY_TP_TRADE_SIZE, profit_distance=BUY_TP_DISTANCE)
@@ -143,7 +143,7 @@ def handle_buy():
             f"🟢⚡ Stacked TP BUY opened\n"
             f"Size: {BUY_TP_TRADE_SIZE}\n"
             f"TP distance: {BUY_TP_DISTANCE}\n"
-            f"Daily P&L: {_daily_pnl(capital)}"
+            f"Weekly P&L: {_weekly_pnl(capital)}"
         )
 
 
@@ -165,7 +165,7 @@ def handle_bvb():
         f"Size: {BVB_TRADE_SIZE}\n"
         f"TP distance: {BVB_TP_DISTANCE}\n"
         f"SL distance: {BVB_SL_DISTANCE}\n"
-        f"Daily P&L: {_daily_pnl(capital)}"
+        f"Weekly P&L: {_weekly_pnl(capital)}"
     )
 
 
@@ -179,7 +179,7 @@ def handle_sell():
 
     capital.open_position(EPIC, "SELL", TRADE_SIZE)
     log.info(f"Opened SELL size={TRADE_SIZE}")
-    notify(f"🔴 SELL opened\nSize: {TRADE_SIZE}\nDaily P&L: {_daily_pnl(capital)}")
+    notify(f"🔴 SELL opened\nSize: {TRADE_SIZE}\nWeekly P&L: {_weekly_pnl(capital)}")
 
 
 def handle_partial_close():
@@ -208,7 +208,7 @@ def handle_partial_close():
             f"⚡ Partial close {PARTIAL_CLOSE_PCT*100:.0f}%\n"
             f"Direction: {direction}\n"
             f"Offset order: {opposite} {close_size}\n"
-            f"Daily P&L: {_daily_pnl(capital)}"
+            f"Weekly P&L: {_weekly_pnl(capital)}"
         )
 
 
@@ -225,7 +225,7 @@ def handle_close():
         capital.close_position(pos["dealId"])
         log.info(f"  Closed {pos['direction']} {pos['dealId']} size={pos['size']}")
 
-    notify(f"❌ All positions closed\nCount: {len(positions)}\nDaily P&L: {_daily_pnl(capital)}")
+    notify(f"❌ All positions closed\nCount: {len(positions)}\nWeekly P&L: {_weekly_pnl(capital)}")
 
 
 # ══════════════════════════════════════════════════════════════

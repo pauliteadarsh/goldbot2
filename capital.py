@@ -134,15 +134,16 @@ class CapitalClient:
         log.info(f"Partial close result: {result}")
         return result
 
-    def get_daily_pnl(self):
-        from datetime import datetime, timezone
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00")
-        now   = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    def get_weekly_pnl(self):
+        from datetime import datetime, timezone, timedelta
+        now          = datetime.now(timezone.utc)
+        week_start   = (now - timedelta(days=now.weekday())).strftime("%Y-%m-%dT00:00:00")
+        now_str      = now.strftime("%Y-%m-%dT%H:%M:%S")
         try:
-            data  = self._request("GET", f"/api/v1/history/transactions?type=TRADE&from={today}&to={now}")
+            data  = self._request("GET", f"/api/v1/history/transactions?type=TRADE&from={week_start}&to={now_str}")
             total = sum(float(t.get("size", 0)) for t in data.get("transactions", []))
             return round(total, 2)
         except Exception as e:
-            log.warning(f"Could not fetch daily P&L: {e}")
+            log.warning(f"Could not fetch weekly P&L: {e}")
             return None
 
