@@ -2,18 +2,21 @@
 Gold Bot 2 — Webhook server
 Listens for TradingView alerts and places trades on Capital.com
 
-Actions:
-  buy           — close any opposite SELL, open BUY
-                  also opens a second stacked BUY with a manual TP
-                  (BUY_TP_DISTANCE) — closes on its TP or on a close signal
-  bvb           — close any opposite SELL, open a separate BUY with its own
-                  TP/SL (BVB_TP_DISTANCE / BVB_SL_DISTANCE) — usually fired
-                  alongside a normal buy alert. Toggle via BVB_ENABLED.
-  vb            — close any opposite SELL, open a separate BUY with TP
-                  only (VB_TP_DISTANCE), no SL. Toggle via VB_ENABLED.
-  sell          — close any opposite BUY, open SELL
-  partial close — place opposite order for PARTIAL_CLOSE_PCT of position size
-  close         — close all open positions
+Actions (Haddaf N1 spec):
+  BUY          — close any opposite SELL, open BUY (no broker SL — indicator
+                 handles it internally; bot receives CLOSE_ALL when SL hits)
+  SELL         — close any opposite BUY, open SELL
+  CLOSE_ALL    — close all open positions (fires on internal SL, Risk Exit, etc.)
+
+Sidecar alerts (independent positions with own TP/SL, each toggleable):
+  POWER_BUY    — BUY sidecar: TP 12.5 pts, no SL
+  BVB_RC_BUY   — BUY sidecar: TP 10 pts, SL 20 pts
+  VB_BUY       — BUY sidecar: TP 25 pts, no SL
+  S2           — SELL sidecar: close opposite BUYs, TP 6 pts, no SL
+  B2           — BUY sidecar: TP 17 pts, SL 30 pts (re-stack on later bar)
+
+All sidecars are closed automatically on CLOSE_ALL or a parent-direction flip
+(BUY sidecars close when SELL fires; S2 closes when BUY fires).
 """
 
 import os
@@ -38,25 +41,36 @@ log = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# ── Configuration (set via Railway environment variables) ──────
-EPIC              = "GOLD"
-TRADE_SIZE        = float(os.getenv("TRADE_SIZE", "1"))
-PARTIAL_CLOSE_PCT = float(os.getenv("PARTIAL_CLOSE_PCT", "0.70"))  # fraction to close, e.g. 0.70 = 70%
-BUY_TP_TRADE_ENABLED = os.getenv("BUY_TP_TRADE_ENABLED", "true").lower() == "true"  # enable/disable the stacked TP trade on buy
-BUY_TP_TRADE_SIZE = float(os.getenv("BUY_TP_TRADE_SIZE", str(TRADE_SIZE)))  # size of the stacked TP trade
-BUY_TP_DISTANCE   = float(os.getenv("BUY_TP_DISTANCE", "12"))  # TP distance for the stacked TP trade
-BVB_ENABLED       = os.getenv("BVB_ENABLED", "true").lower() == "true"  # enable/disable the bvb action
-BVB_TRADE_SIZE    = float(os.getenv("BVB_TRADE_SIZE", str(TRADE_SIZE)))  # size of the BVB trade
-BVB_TP_DISTANCE   = float(os.getenv("BVB_TP_DISTANCE", "10"))  # TP distance for the BVB trade
-BVB_SL_DISTANCE   = float(os.getenv("BVB_SL_DISTANCE", "20"))  # SL distance for the BVB trade
-VB_ENABLED        = os.getenv("VB_ENABLED", "true").lower() == "true"  # enable/disable the vb action
-VB_TRADE_SIZE     = float(os.getenv("VB_TRADE_SIZE", str(TRADE_SIZE)))  # size of the VB trade
-VB_TP_DISTANCE    = float(os.getenv("VB_TP_DISTANCE", "25"))  # TP distance for the VB trade
-TELEGRAM_TOKEN    = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID  = os.getenv("TELEGRAM_CHAT_ID")
+# ── Configuration (set via Railway environment variables) ──────────────────────
+EPIC       = "GOLD"
+TRADE_SIZE = float(os.getenv("TRADE_SIZE", "1"))
+
+# Sidecar sizes — all default to TRADE_SIZE; toggle each on/off independently
+POWER_BUY_ENABLED  = os.getenv("POWER_BUY_ENABLED",  "true").lower() == "true"
+POWER_BUY_SIZE     = float(os.getenv("POWER_BUY_SIZE",  str(TRADE_SIZE)))
+BVB_RC_BUY_ENABLED = os.getenv("BVB_RC_BUY_ENABLED", "true").lower() == "true"
+BVB_RC_BUY_SIZE    = float(os.getenv("BVB_RC_BUY_SIZE", str(TRADE_SIZE)))
+VB_BUY_ENABLED     = os.getenv("VB_BUY_ENABLED",     "true").lower() == "true"
+VB_BUY_SIZE        = float(os.getenv("VB_BUY_SIZE",     str(TRADE_SIZE)))
+S2_ENABLED         = os.getenv("S2_ENABLED",          "true").lower() == "true"
+S2_SIZE            = float(os.getenv("S2_SIZE",          str(TRADE_SIZE)))
+B2_ENABLED         = os.getenv("B2_ENABLED",          "true").lower() == "true"
+B2_SIZE            = float(os.getenv("B2_SIZE",          str(TRADE_SIZE)))
+
+TELEGRAM_TOKEN   = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+# ── Sidecar TP/SL constants — from Haddaf N1; update here if indicator changes ─
+_POWER_BUY_TP  = 12.5
+_BVB_RC_BUY_TP = 10
+_BVB_RC_BUY_SL = 20
+_VB_BUY_TP     = 25
+_S2_TP         = 6
+_B2_TP         = 17
+_B2_SL         = 30
 
 
-# ── Capital.com client ─────────────────────────────────────────
+# ── Capital.com client ─────────────────────────────────────────────────────────
 def get_capital() -> CapitalClient:
     return CapitalClient(
         api_key    = os.getenv("CAPITAL_API_KEY"),
@@ -66,7 +80,7 @@ def get_capital() -> CapitalClient:
     )
 
 
-# ── Telegram ───────────────────────────────────────────────────
+# ── Telegram ───────────────────────────────────────────────────────────────────
 def notify(msg: str):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         return
@@ -85,9 +99,9 @@ def _weekly_pnl(capital: CapitalClient) -> str:
     return f"AED {pnl}" if pnl is not None else "unavailable"
 
 
-# ══════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
 # ROUTES
-# ══════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
 
 @app.route("/health", methods=["GET"])
 def health():
@@ -108,16 +122,20 @@ def webhook():
     try:
         if action == "buy":
             handle_buy()
-        elif action == "bvb":
-            handle_bvb()
-        elif action == "vb":
-            handle_vb()
         elif action == "sell":
             handle_sell()
-        elif action == "partial close":
-            handle_partial_close()
-        elif action == "close":
-            handle_close()
+        elif action == "close_all":
+            handle_close_all()
+        elif action == "power_buy":
+            handle_power_buy()
+        elif action == "bvb_rc_buy":
+            handle_bvb_rc_buy()
+        elif action == "vb_buy":
+            handle_vb_buy()
+        elif action == "s2":
+            handle_s2()
+        elif action == "b2":
+            handle_b2()
         else:
             log.warning(f"Unknown action: {action!r}")
             return jsonify({"error": f"Unknown action: {action}"}), 400
@@ -128,9 +146,9 @@ def webhook():
     return jsonify({"status": "ok", "action": action})
 
 
-# ══════════════════════════════════════════════════════════════
-# HANDLERS
-# ══════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# CORE HANDLERS
+# ══════════════════════════════════════════════════════════════════════════════
 
 def handle_buy():
     capital   = get_capital()
@@ -143,64 +161,6 @@ def handle_buy():
     capital.open_position(EPIC, "BUY", TRADE_SIZE)
     log.info(f"Opened BUY size={TRADE_SIZE}")
     notify(f"🟢 BUY opened\nSize: {TRADE_SIZE}\nWeekly P&L: {_weekly_pnl(capital)}")
-
-    if BUY_TP_TRADE_ENABLED:
-        capital.open_position(EPIC, "BUY", BUY_TP_TRADE_SIZE, profit_distance=BUY_TP_DISTANCE)
-        log.info(f"Opened stacked TP BUY size={BUY_TP_TRADE_SIZE} TP_distance={BUY_TP_DISTANCE}")
-        notify(
-            f"🟢⚡ Stacked TP BUY opened\n"
-            f"Size: {BUY_TP_TRADE_SIZE}\n"
-            f"TP distance: {BUY_TP_DISTANCE}\n"
-            f"Weekly P&L: {_weekly_pnl(capital)}"
-        )
-
-
-def handle_bvb():
-    if not BVB_ENABLED:
-        log.info("BVB action disabled (BVB_ENABLED=false) — skipping")
-        return
-
-    capital   = get_capital()
-    positions = capital.get_positions(EPIC)
-
-    for pos in [p for p in positions if p["direction"] == "SELL"]:
-        capital.close_position(pos["dealId"])
-        log.info(f"  Closed SELL {pos['dealId']} size={pos['size']}")
-
-    capital.open_position(
-        EPIC, "BUY", BVB_TRADE_SIZE,
-        profit_distance=BVB_TP_DISTANCE, stop_distance=BVB_SL_DISTANCE,
-    )
-    log.info(f"Opened BVB BUY size={BVB_TRADE_SIZE} TP_distance={BVB_TP_DISTANCE} SL_distance={BVB_SL_DISTANCE}")
-    notify(
-        f"🟢📌 BVB BUY opened\n"
-        f"Size: {BVB_TRADE_SIZE}\n"
-        f"TP distance: {BVB_TP_DISTANCE}\n"
-        f"SL distance: {BVB_SL_DISTANCE}\n"
-        f"Weekly P&L: {_weekly_pnl(capital)}"
-    )
-
-
-def handle_vb():
-    if not VB_ENABLED:
-        log.info("VB action disabled (VB_ENABLED=false) — skipping")
-        return
-
-    capital   = get_capital()
-    positions = capital.get_positions(EPIC)
-
-    for pos in [p for p in positions if p["direction"] == "SELL"]:
-        capital.close_position(pos["dealId"])
-        log.info(f"  Closed SELL {pos['dealId']} size={pos['size']}")
-
-    capital.open_position(EPIC, "BUY", VB_TRADE_SIZE, profit_distance=VB_TP_DISTANCE)
-    log.info(f"Opened VB BUY size={VB_TRADE_SIZE} TP_distance={VB_TP_DISTANCE}")
-    notify(
-        f"🟢🎯 VB BUY opened\n"
-        f"Size: {VB_TRADE_SIZE}\n"
-        f"TP distance: {VB_TP_DISTANCE}\n"
-        f"Weekly P&L: {_weekly_pnl(capital)}"
-    )
 
 
 def handle_sell():
@@ -216,55 +176,140 @@ def handle_sell():
     notify(f"🔴 SELL opened\nSize: {TRADE_SIZE}\nWeekly P&L: {_weekly_pnl(capital)}")
 
 
-def handle_partial_close():
-    """
-    Partially close PARTIAL_CLOSE_PCT of each open position by placing an
-    opposite order of that size (Capital.com nets the positions).
-    """
+def handle_close_all():
     capital   = get_capital()
     positions = capital.get_positions(EPIC)
 
     if not positions:
-        log.info("Partial close: no open positions")
+        log.info("CLOSE_ALL: no open positions")
         return
 
-    log.info(f"Partial close {PARTIAL_CLOSE_PCT*100:.0f}% across {len(positions)} position(s)")
-
-    for pos in positions:
-        direction     = pos["direction"]
-        original_size = float(pos["size"])
-        close_size    = round(original_size * PARTIAL_CLOSE_PCT, 2)
-        opposite      = "SELL" if direction == "BUY" else "BUY"
-
-        capital.open_position(EPIC, opposite, close_size)
-        log.info(f"  Placed {opposite} {close_size} to offset {direction} {original_size}")
-        notify(
-            f"⚡ Partial close {PARTIAL_CLOSE_PCT*100:.0f}%\n"
-            f"Direction: {direction}\n"
-            f"Offset order: {opposite} {close_size}\n"
-            f"Weekly P&L: {_weekly_pnl(capital)}"
-        )
-
-
-def handle_close():
-    capital   = get_capital()
-    positions = capital.get_positions(EPIC)
-
-    if not positions:
-        log.info("Close: no open positions")
-        return
-
-    log.info(f"Closing all {len(positions)} position(s)")
+    log.info(f"CLOSE_ALL: closing {len(positions)} position(s)")
     for pos in positions:
         capital.close_position(pos["dealId"])
         log.info(f"  Closed {pos['direction']} {pos['dealId']} size={pos['size']}")
 
-    notify(f"❌ All positions closed\nCount: {len(positions)}\nWeekly P&L: {_weekly_pnl(capital)}")
+    notify(f"❌ CLOSE_ALL: {len(positions)} position(s) closed\nWeekly P&L: {_weekly_pnl(capital)}")
 
 
-# ══════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# SIDECAR HANDLERS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def handle_power_buy():
+    if not POWER_BUY_ENABLED:
+        log.info("POWER_BUY disabled — skipping")
+        return
+
+    capital   = get_capital()
+    positions = capital.get_positions(EPIC)
+
+    for pos in [p for p in positions if p["direction"] == "SELL"]:
+        capital.close_position(pos["dealId"])
+        log.info(f"  Closed SELL {pos['dealId']} size={pos['size']}")
+
+    capital.open_position(EPIC, "BUY", POWER_BUY_SIZE, profit_distance=_POWER_BUY_TP)
+    log.info(f"Opened POWER_BUY size={POWER_BUY_SIZE} TP={_POWER_BUY_TP}")
+    notify(
+        f"🟢⚡ POWER_BUY opened\n"
+        f"Size: {POWER_BUY_SIZE} | TP: {_POWER_BUY_TP} pts\n"
+        f"Weekly P&L: {_weekly_pnl(capital)}"
+    )
+
+
+def handle_bvb_rc_buy():
+    if not BVB_RC_BUY_ENABLED:
+        log.info("BVB_RC_BUY disabled — skipping")
+        return
+
+    capital   = get_capital()
+    positions = capital.get_positions(EPIC)
+
+    for pos in [p for p in positions if p["direction"] == "SELL"]:
+        capital.close_position(pos["dealId"])
+        log.info(f"  Closed SELL {pos['dealId']} size={pos['size']}")
+
+    capital.open_position(
+        EPIC, "BUY", BVB_RC_BUY_SIZE,
+        profit_distance=_BVB_RC_BUY_TP, stop_distance=_BVB_RC_BUY_SL,
+    )
+    log.info(f"Opened BVB_RC_BUY size={BVB_RC_BUY_SIZE} TP={_BVB_RC_BUY_TP} SL={_BVB_RC_BUY_SL}")
+    notify(
+        f"🟢📌 BVB_RC_BUY opened\n"
+        f"Size: {BVB_RC_BUY_SIZE} | TP: {_BVB_RC_BUY_TP} pts | SL: {_BVB_RC_BUY_SL} pts\n"
+        f"Weekly P&L: {_weekly_pnl(capital)}"
+    )
+
+
+def handle_vb_buy():
+    if not VB_BUY_ENABLED:
+        log.info("VB_BUY disabled — skipping")
+        return
+
+    capital   = get_capital()
+    positions = capital.get_positions(EPIC)
+
+    for pos in [p for p in positions if p["direction"] == "SELL"]:
+        capital.close_position(pos["dealId"])
+        log.info(f"  Closed SELL {pos['dealId']} size={pos['size']}")
+
+    capital.open_position(EPIC, "BUY", VB_BUY_SIZE, profit_distance=_VB_BUY_TP)
+    log.info(f"Opened VB_BUY size={VB_BUY_SIZE} TP={_VB_BUY_TP}")
+    notify(
+        f"🟢🎯 VB_BUY opened\n"
+        f"Size: {VB_BUY_SIZE} | TP: {_VB_BUY_TP} pts\n"
+        f"Weekly P&L: {_weekly_pnl(capital)}"
+    )
+
+
+def handle_s2():
+    if not S2_ENABLED:
+        log.info("S2 disabled — skipping")
+        return
+
+    capital   = get_capital()
+    positions = capital.get_positions(EPIC)
+
+    for pos in [p for p in positions if p["direction"] == "BUY"]:
+        capital.close_position(pos["dealId"])
+        log.info(f"  Closed BUY {pos['dealId']} size={pos['size']}")
+
+    capital.open_position(EPIC, "SELL", S2_SIZE, profit_distance=_S2_TP)
+    log.info(f"Opened S2 SELL size={S2_SIZE} TP={_S2_TP}")
+    notify(
+        f"🔴⚡ S2 SELL opened\n"
+        f"Size: {S2_SIZE} | TP: {_S2_TP} pts\n"
+        f"Weekly P&L: {_weekly_pnl(capital)}"
+    )
+
+
+def handle_b2():
+    if not B2_ENABLED:
+        log.info("B2 disabled — skipping")
+        return
+
+    capital   = get_capital()
+    positions = capital.get_positions(EPIC)
+
+    for pos in [p for p in positions if p["direction"] == "SELL"]:
+        capital.close_position(pos["dealId"])
+        log.info(f"  Closed SELL {pos['dealId']} size={pos['size']}")
+
+    capital.open_position(
+        EPIC, "BUY", B2_SIZE,
+        profit_distance=_B2_TP, stop_distance=_B2_SL,
+    )
+    log.info(f"Opened B2 BUY size={B2_SIZE} TP={_B2_TP} SL={_B2_SL}")
+    notify(
+        f"🟢🔁 B2 BUY opened\n"
+        f"Size: {B2_SIZE} | TP: {_B2_TP} pts | SL: {_B2_SL} pts\n"
+        f"Weekly P&L: {_weekly_pnl(capital)}"
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # START
-# ══════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
