@@ -42,7 +42,7 @@ log = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # ── Configuration (set via Railway environment variables) ──────────────────────
-EPIC       = "GOLD"
+EPIC       = os.getenv("EPIC", "GOLD")
 TRADE_SIZE = float(os.getenv("TRADE_SIZE", "1"))
 
 # Sidecar sizes — all default to TRADE_SIZE; toggle each on/off independently
